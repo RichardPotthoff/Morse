@@ -10,7 +10,7 @@
 #  2. ASCII in, Morse receiver state out
 #  3. ASCII in, Morse Transmitter start state out
 #
-#Tere is also a "Logisim" simulation "morse.circ" that uses the ROMs generatet by this Python program.
+#Tere is also a "Logisim-evolution" simulation "morse2serial.circ" that uses the ROMs generatet by this Python program.
 
 #valid morse codes taken from "https://morsecode.world/international/translator.html"
 #for all morse codes of length up to 6 dashes or dots
