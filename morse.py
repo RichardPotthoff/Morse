@@ -775,15 +775,16 @@ if __name__=='__main__':
   rl=ROMS(
    ( 
     (0x0000,ROM([],'Table Of Contents')),
-    (0x3000,MORSE_RECEIVER_ROM()),
-    (0x3400,MORSE_TRANSMITTER_ROM()),
-    (0x3500,ROM(asciiToMorseTransmitterState,'asciiToMorseTransmitterState\n')),
-    (0x3600,ROM(asciiToMorseReceiverState,'asciiToMorseReceiverState\n')),
-    (0x3700,ROM(morseReceiverStateToAscii,'morseReceiverStateToAscii\n')),
-    (0x3740,ROM(morseReceiverStateToNodeid,'morseReceiverStateToNodeid\n')),
-    (0x3780,ROM([reversemorse(id) for id in morseReceiverStateToNodeid],'morseReceiverStateToReversedNodeid\n')),
-    (0x3800,UP_DOWN_COUNTER_ROM()),
-    (0x3c00,ROM(alloscs,
+    
+    (0x2000,MORSE_RECEIVER_ROM()),
+    (0x2400,MORSE_TRANSMITTER_ROM()),
+    (0x2500,ROM(asciiToMorseTransmitterState,'asciiToMorseTransmitterState\n')),
+    (0x2600,ROM(asciiToMorseReceiverState,'asciiToMorseReceiverState\n')),
+    (0x2700,ROM(morseReceiverStateToAscii,'morseReceiverStateToAscii\n')),
+    (0x2740,ROM(morseReceiverStateToNodeid,'morseReceiverStateToNodeid\n')),
+    (0x2780,ROM([reversemorse(id) for id in morseReceiverStateToNodeid],'morseReceiverStateToReversedNodeid\n')),
+    (0x2800,UP_DOWN_COUNTER_ROM()),
+    (0x2c00,ROM(alloscs,
 '''oscillators
   A set of oscillators with cycles of 2,4,8,16,32,64,128,256 steps. The oscillators 
   require 1,2,3,4,5,6,7, and 8 feedback lines, e.g. the 64 step oscillator requires D0 - D5 to be 
@@ -795,6 +796,8 @@ if __name__=='__main__':
   can be used to select the count direction. This can be useful if the counter is used to produce a quadrature 
   encoded clock signal.
 ''')),
+    (0x3000,ROM([intToGray(gray) for gray in range(256)],'IntToGray\n  A0..A7: Integer in\n  D0..D7: Gray-Code out')),
+    (0x3100,ROM([grayToInt(i) for i in range(256)],'GrayToInt\n  A0..A7: Gray-Code in\n  D0..D7: Integer out')),
     (0x4000,SERIAL_TRANSMITTER_ROM(24)),
    ),  
     includeDocInRom=True)
