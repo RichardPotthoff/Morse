@@ -185,9 +185,9 @@ def reversemorse(b):
   
 def maketree(cube,treeids,reverse=False):       
   treenodes=tuple(Node(i) for i in range(128))
-  treeNodeForLabel={}
-  cubenodes=[[[None for _ in range(4)] for _ in range(4)] for _ in range(4)]
-  treeNodeForCubeId=[None for _ in range(64)]
+  nodeForCubeIndexForLabel={}
+  nodeForCubeIndex=[[[None for _ in range(4)] for _ in range(4)] for _ in range(4)]
+  nodeForCubeIndexForState=[None for _ in range(64)]
   for z,plane in enumerate(cube):
     for y,row in enumerate(plane):
        for x,c in enumerate(row):
@@ -197,8 +197,8 @@ def maketree(cube,treeids,reverse=False):
          treenode=treenodes[treeid]
          treenode.reverse=reverse
          treenode.label=c   
-         treeNodeForLabel[c]=treenode
-         treenode.nodeForLabel=treeNodeForLabel
+         nodeForCubeIndexForLabel[c]=treenode
+         treenode.nodeForLabel=nodeForCubeIndexForLabel
          msb=treeid.bit_length()
          if msb==0:
            x_=0.5
@@ -210,14 +210,14 @@ def maketree(cube,treeids,reverse=False):
          if reverse:
            y_+=-count_bits(treeid)
          treenode.coord=(x_,y_)
-         cubeid= ((z^(z>>1)^1)<<4) | ((y^(y>>1)^1)<<2) | ((x^(x>>1)^3)<<0) 
-         treenode.cubeid=cubeid
+         state= ((z^(z>>1)^1)<<4) | ((y^(y>>1)^1)<<2) | ((x^(x>>1)^3)<<0) 
+         treenode.state=state
          treenode.cubecoord=(x-1.5,-(y-1.5),-(z-1.5))
          treenode.cubeindex=(x,3-y,3-z,)
-         cubenodes[x][3-y][3-z]=treenode
-         treenode.cubenodes=cubenodes
-         treeNodeForCubeId[cubeid]=treenode
-         treenode.nodeForCubeId=treeNodeForCubeId
+         nodeForCubeIndex[x][3-y][3-z]=treenode
+         treenode.nodeForCubeIndex=nodeForCubeIndex
+         nodeForCubeIndexForState[state]=treenode
+         treenode.nodeForState=nodeForCubeIndexForState
          if reverse:
            if (treeid&1)==1:
              parentid=treeid^1
@@ -230,7 +230,7 @@ def maketree(cube,treeids,reverse=False):
            treenodes[parentid].right=treenode
          elif parentid!=treeid:
            treenodes[parentid].left=treenode
-  rootnode=cubenodes[2][2][2]
+  rootnode=nodeForCubeIndex[2][2][2]
   if rootnode.parent!=None:
     if rootnode.parent.right is rootnode:
       rootnode.parent.right=None
@@ -343,7 +343,7 @@ def plotCube(tree,azim=-50*pi/180,elev=10*pi/180,camera=50,width=4.5,height=4.5)
     coord2d,perspective,zorder=project(node.cubecoord,M,camera=camera)
     for delta in ((0,0,-1,0,0,1,0,0,0,)[-(i+4):-(i+1)] for i in range(6)):
       x,y,z=((node.cubeindex[i]+delta[i]) % 4 for i in range(3))
-      neighbournode=tree.cubenodes[x][y][z]
+      neighbournode=tree.nodeForCubeIndex[x][y][z]
       if neighbournode.right is node:
         style=dict(arrow_direction=1 if node.reverse else -1,linestyle='-',c='b',linewidth=1.5)
       elif neighbournode.left is node:
@@ -381,7 +381,33 @@ def makerom2():
   morserom=[b if b<256 else 32 for i in range(128) for c in (rmorse.get(i,'\x00'),) for b in(ord(c if c!='' else '\x00'),)]
   with open('rmorse.bin','wb') as f: 
     f.write(bytes(morserom)) 
-class ROM:
+    
+    
+class ROM(list):
+  """
+  """
+  def __init__(self,rom=None,doc=None):
+      if rom!=None:
+        self+=rom
+      if doc!=None:
+        self.__doc__=doc
+        
+  def __iter__(self):
+    return(self[i] for i in range(len(self)))
+  def __repr__(self):
+      return f'[{", ".join(repr(x) for x in self)}]'
+  
+
+class MORSE_RECEIVER_ROM(ROM):
+  """MORSE_RECEIVER_ROM
+  An Eprom State Machine that receives serial morse code.
+  I/O:
+  A0 .. A6, D0..D6: state (6 state bits (64 states) + 1 parity bit)
+  A7: clk (serial morse input)
+  A8: data (delayed morse signal, sampled at falling edge of the morse pulse. 0 for dot, 1 for dash)
+  A9: reset (sets the state 0)
+  D7: reset complete (state==0, ready to receive the next morse code)
+  """
   def __len__(self):
     return 1<<(9+1)#number of used address lines
   def __iter__(self):
@@ -396,15 +422,15 @@ class ROM:
     if reset:
         if state & 64:
           return state^64
-        if receivertree.nodeForCubeId[state&0b111111]==None:
+        if receivertree.nodeForState[state&0b111111]==None:
           newstate=state^((1<<state.bit_length())>>1) 
           return 128|newstate if (state!=0 or clock or data) else newstate
-        node=receivertree.nodeForCubeId[state&0b111111]
+        node=receivertree.nodeForState[state&0b111111]
         nextnode=node.parent
-        if nextnode==None or nextnode.cubeid==None:
+        if nextnode==None or nextnode.state==None:
           newstate=state^((1<<state.bit_length())>>1) 
           return 128|newstate if (state!=0 or clock or data) else newstate
-        nextstate=nextnode.cubeid
+        nextstate=nextnode.state
         statechange=(state^nextstate)&0b111111
         assert count_bits(statechange)<=1
         newstate=state^statechange
@@ -417,13 +443,13 @@ class ROM:
         return state|128 
     if not clock:
       if not parity(state):
-        if receivertree.nodeForCubeId[state&0b111111]==None:
+        if receivertree.nodeForState[state&0b111111]==None:
           return (state|128 if state!=0 else state&127)^64
-        node=receivertree.nodeForCubeId[state&0b111111]
+        node=receivertree.nodeForState[state&0b111111]
         nextnode=node.left if data==0 else node.right
-        if nextnode==None or nextnode.cubeid==None:
+        if nextnode==None or nextnode.state==None:
           return (state|128 if state!=0 else state&127)^64
-        nextstate=nextnode.cubeid
+        nextstate=nextnode.state
         statechange=(state^nextstate)&0b111111
         assert count_bits(statechange)<=1
         if statechange==0:
@@ -433,28 +459,34 @@ class ROM:
       else:
         return state|128 if state!=0 else state&127
         
-hypercubecoord2chr=[ ord(c) if ord(c)<256 else 32 for state in range(64) for c in (receivertree.nodeForCubeId[state].label,)]
-nodeid=[receivertree.nodeForCubeId[state].id for state in range(64)]
+morseReceiverStateToAscii=[ ord(c) if ord(c)<256 else 32 for state in range(64) for c in (receivertree.nodeForState[state].label,)]
 
-r=ROM()
+asciiToMorseReceiverState=tuple(state if parity(state) else state^64 
+        for ascii in range(256) 
+        for node in (receivertree.nodeForLabel.get(chr(ascii).lower(),None),) 
+        for state in (node.state if node!=None else 0,))
+
+morseReceiverStateToNodeid=[receivertree.nodeForState[state].id for state in range(64)]
+
+r=MORSE_RECEIVER_ROM()
 assert max([count_bits((x^i)&0x7f) for i,x in enumerate(r)])<=1
 state=0
 for dd in (1,1,1,0,0,1,0):
   state=r[state&127]
-  print(f'{state:08b} {receivertree.nodeForCubeId[state&0b111111].id} {receivertree.nodeForCubeId[state&0b111111].label}')
+  print(f'{state:08b} {receivertree.nodeForState[state&0b111111].id} {receivertree.nodeForState[state&0b111111].label}')
   state=r[(1<<7)+(state&127)]
-  print(f'{state:08b} {receivertree.nodeForCubeId[state&0b111111].id} {receivertree.nodeForCubeId[state&0b111111].label}')
+  print(f'{state:08b} {receivertree.nodeForState[state&0b111111].id} {receivertree.nodeForState[state&0b111111].label}')
   state=r[(1<<8)*dd+(state&127)]
-  print(f'{state:08b} {receivertree.nodeForCubeId[state&0b111111].id} {receivertree.nodeForCubeId[state&0b111111].label}')
+  print(f'{state:08b} {receivertree.nodeForState[state&0b111111].id} {receivertree.nodeForState[state&0b111111].label}')
 
-state=receivertree.nodeForLabel['!'].cubeid
+state=receivertree.nodeForLabel['!'].state
 #state=cubecoord['6']
 while state&63!=0:
   state=r[(1<<9)+(state&127)]
-  print(f'{state:08b} {receivertree.nodeForCubeId[state&0b111111].id} {receivertree.nodeForCubeId[state&0b111111].label}')
+  print(f'{state:08b} {receivertree.nodeForState[state&0b111111].id} {receivertree.nodeForState[state&0b111111].label}')
 
 def makerom3():
-  morserom=[l[i] for l in (hypercubecoord2chr,nodeid) for i in range(64)]
+  morserom=[l[i] for l in (stateToChr,stateToNodeid) for i in range(64)]
   with open('hypercube2chr2bin.bin','wb') as f: 
     f.write(bytes(morserom))
 def makerom4():
@@ -528,9 +560,26 @@ def serialbit(ascii,counter):
     return 1 if parity(ascii) else 0 #odd parity
   return 0
   
-class UART_ROM(ROM):
+class SERIAL_TRANSMITTER_ROM(ROM): 
+  """SERIAL_TRANSMITTER_ROM
+  EPROM State Machine that takes the state of the MORSE_RECEIVER_ROM as input, and produces an ASCII serial output.
+  There are two versions: One with 24 steps that requires the clock to have a 50% duty cycle, and one with 48 steps.
+  The 48 step version divides the clock signal by two, and does not require 50% duty cycle clock, but it requires an additional address line.
+  I/O:
+  A0..A4(A5)*,D0..D4(D5)*: state ot this state Machine 
+  A5(A6)* : clk (the baud rate for the 48 step version, half the baud rate for the 24 step version)
+  A6(A7)* : chr_ready (the transmission starts when this signal goes high)
+  A7(A8)* : word_ready (if this signal goes high before the chr_ready signal goes low, an additional space character is transmitted)
+  A8..A13(A9..14)* : input (state of the MORSE_RECEIVER_ROM, D0..D5)
+  D6: the serial output signal, 1 start bit, 8 data bits, odd parity, 1 stop bit
+  D7: character transmission complete (reset signal for the MORSE_RECEIVER_ROM State Machine) 
+  
+  * the numbers in parentheses are for the 48 step version
+  """
+  def __init__(self,nsteps=48):
+    self._nsteps=nsteps
   def __len__(self):
-    return 1<<(6+3+6)#2**(number of used address lines - 1) 6 input data, clk, char, word, state(counter 0..63)
+    return 1<<(6+3+self._nsteps.bit_length())#2**(number of used address lines - 1) 6 input data, clk, char, word, state(counter 0..63 or 0..31)
   def __getitem__(self,addr):
     #addr bits:
     # 0.. 5 : step counter as gray code, 48 steps
@@ -545,42 +594,45 @@ class UART_ROM(ROM):
     #or word_ready and ascii==32 ->goto step 24
     #step24..46 : count up
     #step47: wait for not chr_ready-> go to step0
-    nsteps=48
-    state=addr&0x3f#bit 0..5
+    nsteps=self._nsteps
+    state_mask=(1<<nsteps.bit_length())-1
+    clk_bit_pos=nsteps.bit_length() 
+    state=addr&state_mask#bit 0..5 or 0..4 for nsteps= 48 or 24, respectively
     try:
-      step=gray2count(state,nsteps) #Exception may be raised if the gray code is not for one of the 48 valid states
+      step=gray2count(state,nsteps) #Exception may be raised if the gray code is not for one of the nsteps valid states
     except Exception as e:
       return intToGray((grayToInt(state)+1)%64) #try to fix this by slowly moving to a nearby valid state
-    clk=(addr>>6)&1
-    char_ready=(addr>>7)&1
-    word_ready=(addr>>8)&1
-    ascii=hypercubecoord2chr[(addr>>9)&0x3f]
+    clk=(addr>>clk_bit_pos)&1
+    char_ready=(addr>>(clk_bit_pos+1))&1
+    word_ready=(addr>>(clk_bit_pos+2))&1
+    ascii=morseReceiverStateToAscii[(addr>>(clk_bit_pos+3))&0x3f]
     nextstep=step
     if step==0:
       if char_ready:
         nextstep=1
-    if (step>=1) and (step<=22): #transmit the ascii character decoded by the morse state machine
+    if (step>=1) and (step<=(nsteps//2-2)): #transmit the ascii character decoded by the morse state machine
       nextstep=step+1
-    if step==23: #this is where the reset for the morse stste machine is set. ascii=32 on reset completion
+    if step==(nsteps//2-1): #this is where the reset for the morse stste machine is set. ascii=32 on reset completion
       if ((not char_ready) and (ascii==32)): #falling edge of chr_ready occured before word_ready -> no space char
         nextstep=0
       elif (word_ready and (ascii==32)): #word_ready means space charecter needs to be transmitter -> continue 
-        nextstep=24
-    if (step>=24) and (step<=46): #transmit the space character
+        nextstep=nsteps//2
+    if (step>=(nsteps//2)) and (step<=(nsteps-2)): #transmit the space character
       nextstep=step+1
-    if step==47:
+    if step==(nsteps-1):
       if not char_ready:#wait for the falling edge to prevent retransmission of the same character repeatedly
         nextstep=0       
     nextstate=count2gray(nextstep,nsteps)
     if parity(nextstate)==clk: #change the state synchronously
-      if count_bits(state^nextstate)>1:
-        print(locals())
+      if count_bits(state^nextstate)>1:#this should never happen: at most one bit should change
+        print(locals())#print diagnostics if this error occurs
       step=nextstep
       state=nextstate 
-    return state|(serialbit(ascii,step//2)<<6)|((1<<7) if (step in (22,23))else 0)
+    return state|(serialbit(ascii,step//(2 if nsteps==48 else 1))<<6) | ((1<<7) if (step//(2 if nsteps==48 else 1))==11 else 0)
     
-r=UART_ROM()
-assert max([count_bits((x^i)&0x3f) for i,x in enumerate(r)])<=1
+r=SERIAL_TRANSMITTER_ROM(48)
+state_mask=(1<<r._nsteps.bit_length())-1
+assert max([count_bits((x^i)&(state_mask)) for i,x in enumerate(r)])<=1
 maxiter=10
 l=[maxiter]*len(r)  
 for i in range(len(r)):
@@ -597,44 +649,50 @@ assert max(l)<maxiter
   
 def makerom5():
   with open('morse_uart.bin','wb') as f: 
-    f.write(bytes(UART_ROM()))
+    f.write(bytes(SERIAL_TRANSMITTER_ROM()))
+    
+asciiToMorseTransmitterState=tuple(state if parity(state) else state^64 
+        for ascii in range(256) 
+        for node in (transmittertree.nodeForLabel.get(chr(ascii).lower(),None),) 
+        for state in (node.state if node!=None else 0,))
 
-class MORSE_ROM(ROM):
+class MORSE_TRANSMITTER_ROM(ROM):
+  """MORSE_TRANSMITTER_ROM
+  EPROM State Machine that generates a serial Morse output for an initial input state*.
+  A0..A6,D0..D6: state of the state machine, also the initial input: 6 state bits (for 64 states) + 1 parity bit
+  A7: clk, (clock input, ~50% duty cycle. dot= 1/2 cycle, dash= 3/2 cycles)
+  D7: serial Morse output 
+  
+  * The 'Output Disable' pin of the EPROM is used to disable the state feedback, which allows to load the initial state. The same signal also stops and starts the clock.
+  """
   def __len__(self):
-    return (1<<9)#1 clk, 7 state bits (6 bits for 64 states + 1 parity bit),256 byte lookup Table
+    return (1<<8)#1 clk, 7 state bits (6 bits for 64 states + 1 parity bit)
   def __getitem__(self,address):
-    if (address>>8)==1:
-      state=transmittertree.nodeForLabel.get(chr(address&255).lower(),None).cubeid
-      if not parity(state):
-        state^=64
-      return state
     clk=(address>>7)&1
     state=address & 127
     p=parity(state)
-    coord=state & 63
-    if transmittertree.nodeForCubeId[coord]==None:# if this coordinate is unused, do nothing:
+    if transmittertree.nodeForState[state&63]==None:# if this coordinate is unused, do nothing:
       return state
-    node=transmittertree.nodeForCubeId[coord]
+    node=transmittertree.nodeForState[state&63]
     if p: #even parity
-      if coord != 0:
+      if (state&63) != 0:
         nextstate=state^64 #make parity odd leave coord unchanged, only if end not yet reached
       else:
         nextstate=state
     else: #odd parity
-      nextstate=(state&64) | node.parent.cubeid  
+      nextstate=(state&64) | (node.parent.state if node.parent!=None else 0) 
     if clk==p:
       state=nextstate
     p=parity(state)
-    coord=state & 63
-    node=transmittertree.nodeForCubeId[coord]
+    node=transmittertree.nodeForState[state&63]
     signal=128 if (p or node.isrightchild) and ((node.parent!=None) and (node.parent.id!=0)) else 0
     return signal | state
 #with open('MORSE_ROM.bin','wb') as f: f.write(bytes(MORSE_ROM())) 
 
 def Morse(c):
-  mr=MORSE_ROM()
+  mr=MORSE_TRANSMITTER_ROM()
   asc=ord(c)
-  state=mr[256+asc] if asc<256 else 0
+  state=asciiToMorseTransmitterState[asc] if asc<256 else 0
   clk=0
   while True:
     state=mr[clk | (state & 0x7f)]
@@ -643,7 +701,66 @@ def Morse(c):
       break
     yield '–' if state&128 else '␣' 
     clk^=128
-  
+    
+class ROMS(ROM):
+  def __init__(self,ROMLIST,includeDocInRom=True):
+    #Romlist=list of (start address, ROM instance)
+    self._ROMS=tuple((range(start,start+len(ROM)),ROM) for start,ROM in ROMLIST)
+    self._includeDocInRom=includeDocInRom 
+    self.__doc__='\n\n'.join(['Table Of Contents:\n\nStart (bin)      (hex)  End  Size\n','Detailed Description:\n\n'][not TOC]+''.join(f'{startb:s}, {start:04x}, {start+len(ROM)-1:04x}, {len(ROM):04x} : {doc}\n' for start,ROM in ROMLIST for rombits in (max(0,len(ROM)-1).bit_length(),) for startb in ((f'{start:024b}'[:-rombits if rombits!=0 else None]+'x'*rombits)[24-(len(self)-1).bit_length():],) for doc in (ROM.__doc__.split('\n')[0] if TOC else ROM.__doc__,)) for TOC in (True, False,) )
+    for start,ROM in ROMLIST:
+      max_addr=(1<<(len(ROM)-1).bit_length())-1 if len(ROM)>0 else 0 
+      if (start&max_addr)!=0:
+        raise Exception(f'Missaligned ROM block: start={start:016b}, block address space={max_addr:016b}')
+    
+  def __len__(self):
+    return 1<<max((r.stop-1).bit_length() for r,_ in self._ROMS)
+  def __getitem__(self,address):
+    if isinstance(address,slice):
+      start=address.start if address.start!=None else 0
+      stop=address.stop if address.stop!=None else length(self)
+      step=address.step if address.step !=None else 1
+      return list(self[i] for i in range(start,stop,step))
+    for r,ROM in self._ROMS:
+      if address in r:
+        return ROM[r.index(address)]
+    if self._includeDocInRom and (address<len(self.__doc__)):
+      chr=ord(self.__doc__[address])
+      return chr if chr<256 else ord('?')
+    else:
+      return 0xff
+      
+      
+def makeOscEprom(nbits):
+    inc=nbits//abs(nbits) if nbits!=0 else 0
+    nbits=max(1,abs(nbits))
+    n=1<<nbits
+    return [intToGray((i+inc)%n)|((1<<(i//4+4)) if ((nbits==4) and (((i+inc)%4)!=0)) else 0) for j in range(n) for i in (grayToInt(j),)]  
+oscs=[makeOscEprom(i) for i in [0,1,2,3,4,5,6,7,8,0,-1,-2,-3,-4,-5,-6,-7,-8]]
+alloscs=[y for x in oscs for y in x] 
+
+class UP_DOWN_COUNTER_ROM(ROM):
+  """UP_DOWN_COUNTER_ROM
+  A counter with an quadrature encoded input.
+  An, A(n-1): quadrature encoded imput signal, e.g. from a rotary quadrature encoder (n=msb)
+  A(n-2)..A0: count (gray-encoded)
+  D(n-2)..D0: loop-back to An-2..A0
+  """
+  def __init__(self,nbits=8):
+    self._nbits=nbits
+    self._n=1<<nbits
+  def __len__(self):
+    return (1<<self._nbits)*4
+  def __getitem__(self,address):
+    phase=grayToInt((address>>self._nbits)&3)
+    step=grayToInt(address&(self._n-1))
+    delta_phase=(step-phase)%4
+    if delta_phase<1:
+      step+=1
+    if delta_phase>2:
+      step-=1
+    step%=self._n
+    return intToGray(step)
 
 if __name__=='__main__':
   plotCube(receivertree)
@@ -654,4 +771,33 @@ if __name__=='__main__':
   
   for c in 'ab c^de':
     print(c,''.join(Morse(c)))
+    
+  rl=ROMS(
+   ( 
+    (0x0000,ROM([],'Table Of Contents')),
+    (0x3000,MORSE_RECEIVER_ROM()),
+    (0x3400,MORSE_TRANSMITTER_ROM()),
+    (0x3500,ROM(asciiToMorseTransmitterState,'asciiToMorseTransmitterState\n')),
+    (0x3600,ROM(asciiToMorseReceiverState,'asciiToMorseReceiverState\n')),
+    (0x3700,ROM(morseReceiverStateToAscii,'morseReceiverStateToAscii\n')),
+    (0x3740,ROM(morseReceiverStateToNodeid,'morseReceiverStateToNodeid\n')),
+    (0x3780,ROM([reversemorse(id) for id in morseReceiverStateToNodeid],'morseReceiverStateToReversedNodeid\n')),
+    (0x3800,UP_DOWN_COUNTER_ROM()),
+    (0x3c00,ROM(alloscs,
+'''oscillators
+  A set of oscillators with cycles of 2,4,8,16,32,64,128,256 steps. The oscillators 
+  require 1,2,3,4,5,6,7, and 8 feedback lines, e.g. the 64 step oscillator requires D0 - D5 to be 
+  connected to A0 - A5. 
+  There are no other inputs or outputs.
+  The start address of each oscillator is the same as the step number: e.g. the offset for the 64 step 
+  oscillator is 64. The program for the 64 step oscillator is 64 bytes long, and ends at 127.
+  There is a second set of oscillators that count in reverse at offset 512. This means Address line A9
+  can be used to select the count direction. This can be useful if the counter is used to produce a quadrature 
+  encoded clock signal.
+''')),
+    (0x4000,SERIAL_TRANSMITTER_ROM(24)),
+   ),  
+    includeDocInRom=True)
+    
+  print('\n'.join(f'{r.start:04x}, {(r.stop-r.start):04x},{r.stop-1:04x}' for r,ROM in rl._ROMS))
 
