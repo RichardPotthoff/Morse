@@ -772,7 +772,7 @@ if __name__=='__main__':
   for c in 'ab c^de':
     print(c,''.join(Morse(c)))
     
-  rl=ROMS(
+  combinedROM=ROMS(
    ( 
     (0x0000,ROM([],'Table Of Contents')),
     
@@ -802,5 +802,4 @@ if __name__=='__main__':
    ),  
     includeDocInRom=True)
     
-  print('\n'.join(f'{r.start:04x}, {(r.stop-r.start):04x},{r.stop-1:04x}' for r,ROM in rl._ROMS))
-
+with open('morseROM.bin','wb') as f: f.write(bytes(combinedROM))
