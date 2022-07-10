@@ -520,7 +520,7 @@ def intToGray(i):
   
 def gray2count(gray,n):
   if n%2==1: raise Exception(f'n must be even')
-  bl=n.bit_length( )
+  bl=(n-1).bit_length( )
   max=1<<bl
   parts=1
   while n&parts==0:
@@ -538,7 +538,7 @@ def gray2count(gray,n):
     
 def count2gray(count,n):
   if n%2==1: raise Exception(f'n must be even')
-  bl=n.bit_length( )
+  bl=(n-1).bit_length( )
   max=1<<bl
   parts=1
   while n&parts==0:
@@ -551,6 +551,15 @@ def count2gray(count,n):
   spr=d*delta_m+r-offs
   return intToGray(spr)
   
+def test_gray2count():
+  def catcher(f,default=None):
+    try:
+      return f()
+    except Exception as e:
+      return default
+  print(' '.join(f'{n:3d}' for n in range(32,16,-2)))
+  print('\n'.join(' '.join(catcher(lambda:f'{gray2count(intToGray(i),n):3d}',' --') for n in range(32,16,-2)) for i in range(32)))
+    
 def serialbit(ascii,counter):
   if counter in (0,11,12,19,23): #19=bit5 for space (end of word)
     return 1
