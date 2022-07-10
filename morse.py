@@ -345,15 +345,15 @@ def plotCube(tree,azim=-50*pi/180,elev=10*pi/180,camera=50,width=4.5,height=4.5)
       x,y,z=((node.cubeindex[i]+delta[i]) % 4 for i in range(3))
       neighbournode=tree.nodeForCubeIndex[x][y][z]
       if neighbournode.right is node:
-        style=dict(arrow_direction=1 if node.reverse else -1,linestyle='-',c='b',linewidth=1.5)
+        style=dict(arrow_direction=1 if node.reverse else -1,linestyle='-',c='b' if neighbournode.id!=0 else 'k',linewidth=1.5)
       elif neighbournode.left is node:
-        style=dict(arrow_direction=1 if node.reverse else -1,linestyle='-',c='r',linewidth=1.5)
+        style=dict(arrow_direction=1 if node.reverse else -1,linestyle='-',c='r' if neighbournode.id!=0 else 'k',linewidth=1.5)
       elif neighbournode.parent is node:
-        if neighbournode.isrightchild:
-          style=dict(arrow_direction=-1 if node.reverse else 1,linestyle='-',c='b',linewidth=1.5)
+        if node.right is neighbournode:
+          style=dict(arrow_direction=-1 if node.reverse else 1,linestyle='-',c='b' if node.id!=0 else 'k',linewidth=1.5)
         else:
-          style=dict(arrow_direction=-1 if node.reverse else 1,linestyle='-',c='r',linewidth=1.5)
-      elif delta[2]==0:
+          style=dict(arrow_direction=-1 if node.reverse else 1,linestyle='-',c='r' if node.id!=0 else 'k',linewidth=1.5)
+      elif delta[2]==0: #draw grids only in x-y planes
         style=dict(arrow_direction=0,linestyle='-',c='gray',linewidth=0.5)
       else:
         continue
