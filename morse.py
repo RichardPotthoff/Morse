@@ -588,7 +588,7 @@ class SERIAL_TRANSMITTER_ROM(ROM):
   def __init__(self,nsteps=48):
     self._nsteps=nsteps
   def __len__(self):
-    return 1<<(6+3+self._nsteps.bit_length())#2**(number of used address lines - 1) 6 input data, clk, char, word, state(counter 0..63 or 0..31)
+    return 1<<(6+3+self._nsteps.bit_length())#2**(number of used address lines) 6 input data, clk, char, word, state(counter 0..63 or 0..31)
   def __getitem__(self,addr):
     #addr bits:
     # 0.. 5 : step counter as gray code, 48 steps
@@ -624,7 +624,7 @@ class SERIAL_TRANSMITTER_ROM(ROM):
     if step==(nsteps//2-1): #this is where the reset for the morse stste machine is set. ascii=32 on reset completion
       if ((not char_ready) and (ascii==32)): #falling edge of chr_ready occured before word_ready -> no space char
         nextstep=0
-      elif (word_ready and (ascii==32)): #word_ready means space charecter needs to be transmitter -> continue 
+      elif (word_ready and (ascii==32)): #word_ready means space character needs to be transmitter -> continue 
         nextstep=nsteps//2
     if (step>=(nsteps//2)) and (step<=(nsteps-2)): #transmit the space character
       nextstep=step+1
@@ -698,7 +698,7 @@ class MORSE_TRANSMITTER_ROM(ROM):
     return signal | state
 #with open('MORSE_ROM.bin','wb') as f: f.write(bytes(MORSE_ROM())) 
 
-def Morse(c):
+def Test_Morse(c):
   mr=MORSE_TRANSMITTER_ROM()
   asc=ord(c)
   state=asciiToMorseTransmitterState[asc] if asc<256 else 0
@@ -710,6 +710,26 @@ def Morse(c):
       break
     yield '–' if state&128 else '␣' 
     clk^=128
+    
+def Test_Serial(c,word=False):
+  st=SERIAL_TRANSMITTER_ROM(24)
+  asc=ord(c)
+  morsestate=((asciiToMorseReceiverState[asc] if asc<256 else 0)&0x3f)<<8
+  clk=32
+  state=st[clk | 0x10 | morsestate ]
+  clk^=32
+  yield '–' if state&64 else '␣' 
+  while True:
+    state=st[clk | (state & 0x1f)| morsestate | 0x40 | (0x80 if word else 0)]
+    yield '–' if state&64 else '␣' 
+    if (state>>7)&1==1: #bit 7 is the reset signal
+       morsestate=0 #simulate reset morse receiver
+    if (state&0x1f) == 8:
+      if not word:
+        break
+    if (state&0x1f)==16:
+        break
+    clk^=32
     
 class ROMS(ROM):
   def __init__(self,ROMLIST,includeDocInRom=True):
@@ -772,14 +792,30 @@ class UP_DOWN_COUNTER_ROM(ROM):
     return intToGray(step)
 
 if __name__=='__main__':
+  
   plotCube(receivertree)
   plotTree(receivertree)
   
   plotCube(transmittertree) 
   plotTree(transmittertree)
   
+  print()
+  print('Test of the MORSE_TRANSMITTER_ROM:')
   for c in 'ab c^de':
-    print(c,''.join(Morse(c)))
+    print(c,''.join(Test_Morse(c)))
+    
+  print()  
+  print('Test of the SERIAL_TRANSMITTER_ROM:')
+  print('1. Single Character:')
+  print('  ms01234567ps')  
+  for c in 'ab c^de':
+    print(c,''.join(Test_Serial(c)))
+  print()
+  print('2. End of Word: (A space character is sent after the last character of the word.)')
+  print('  ms01234567psms01234567ps')
+  for c in 'ab c^de':
+    print(c,''.join(Test_Serial(c,word=True)))
+  
     
   combinedROM=ROMS(
    ( 
@@ -811,4 +847,6 @@ if __name__=='__main__':
    ),  
     includeDocInRom=True)
     
-with open('morseROM.bin','wb') as f: f.write(bytes(combinedROM))
+   
+
+#with open('morseROM.bin','wb') as f: f.write(bytes(combinedROM))
