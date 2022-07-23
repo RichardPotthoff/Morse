@@ -741,7 +741,7 @@ class ROMS(ROM):
     prevend=-1
     for start,ROM in sorted(ROMLIST):
       max_addr=(1<<(len(ROM)-1).bit_length())-1 if len(ROM)>0 else 0 
-      if start<prevend:
+      if start<=prevend:
         raise Exception(f"Overlapping ROM block at 0x{start:04x}!\nPrevious block starts at 0x{prevstart:04x} and ends at 0x{prevend:04x}")
       prevend=start|max_addr
       prevstart=start
