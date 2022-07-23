@@ -737,14 +737,16 @@ class ROMS(ROM):
     self._ROMS=tuple((range(start,start+len(ROM)),ROM) for start,ROM in ROMLIST)
     self._includeDocInRom=includeDocInRom 
     self.__doc__='\n\n'.join(['Table Of Contents:\n\nStart (bin)      (hex)  End  Size\n','Detailed Description:\n\n'][not TOC]+''.join(f'{startb:s}, {start:04x}, {start+len(ROM)-1:04x}, {len(ROM):04x} : {doc}\n' for start,ROM in ROMLIST for rombits in (max(0,len(ROM)-1).bit_length(),) for startb in ((f'{start:024b}'[:-rombits if rombits!=0 else None]+'x'*rombits)[24-(len(self)-1).bit_length():],) for doc in (ROM.__doc__.split('\n')[0] if TOC else ROM.__doc__,)) for TOC in (True, False,) )
+    prevstart=0
     prevend=-1
     for start,ROM in sorted(ROMLIST):
       max_addr=(1<<(len(ROM)-1).bit_length())-1 if len(ROM)>0 else 0 
       if start<prevend:
-        raise Exception(f"Overlapping ROM block @0x{start:04x}! (start address lies inside another block) ")
+        raise Exception(f"Overlapping ROM block at 0x{start:04x}!\nPrevious block starts at 0x{prevstart:04x} and ends at 0x{prevend:04x}")
       prevend=start|max_addr
+      prevstart=start
       if (start&max_addr)!=0:
-        raise Exception(f'Missaligned ROM block @ 0x{start:04x}: start={start:016b}, block address space={max_addr:016b}')
+        raise Exception(f'Missaligned ROM block at 0x{start:04x}:\nstart={start:016b}\nrange={max_addr:016b}')
     
   def __len__(self):
     return 1<<max((r.stop-1).bit_length() for r,_ in self._ROMS)
@@ -824,7 +826,6 @@ if __name__=='__main__':
   combinedROM=ROMS(
    ( 
     (0x0000,ROM([],'Table Of Contents')),
-    
     (0x2000,MORSE_RECEIVER_ROM()),
     (0x2400,MORSE_TRANSMITTER_ROM()),
     (0x2500,ROM(asciiToMorseTransmitterState,'asciiToMorseTransmitterState\n')),
