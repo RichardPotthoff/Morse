@@ -796,6 +796,96 @@ class UP_DOWN_COUNTER_ROM(ROM):
       step-=1
     step%=self._n
     return intToGray(step)
+    
+class SERIAL_RECEIVER_ROM(ROM):
+  """SERIAL_RECEIVER_ROM
+  A State Machine that takes a serial signal as input (A10), and produces a 7bit parallel output (D0-D6).
+  The State Machine also needs two phase-shifted clock signals, (A8, A9) of 1/2 the baud rate.
+  The MSB output of the State Machine (D7) controls the clock. The clock is switched on (D7=high) when the 
+  serial start bit is received while the State Machine is waiting for input (D0-D7 all zero).
+  The clock is switched off (D7=low) once all 7 data bits are received. 
+  D7 also indicates 'parallel_data_ready' (D7 high->low).
+  The state machine is reset by setting A0-A7 to zero. (E.g. pull-down resistors and /OE).
+  I/O:
+  A0..A7,D0..D7 : state ot this state Machine
+                 D7 high = clock_on
+                 D7 high->low = data_ready
+                 D0..D6 = parallel output
+  A8 : clk0 clock at 1/2 baud rate, logical low when clock is off
+  A9 : clk1 slightly delayed clk0 (e.g. R/C delayed). The serial input is sampled when clk1!=clk0
+  A10 : Serial input, 1 start bit, 7 data bits. Additional bits (8. bit, parity) are discarded
+  """
+  def __len__(self):
+    return 1<<(8+3)#number of used address lines
+  def __iter__(self):
+    return(self[i] for i in range(len(self)))
+  def __getitem__(self,addr):
+    state=addr&0xff
+    clk0=(addr>>8)&1
+    clk1=(addr>>9)&1
+    serial_in=(addr>>10)&1   
+    if state==0 and (serial_in==0):#start clock when start bit is received
+          return 0x80   # start clock     
+    if state&0x80:#clock running
+      i=6
+      while i>=0:#find the marker bit
+        if (state&(1<<i))!=0:
+          break
+        i-=1
+      if (i%2==clk0):#synchronize the state with the clock by advancing the state
+        return state^(1<<(i+1))#this will also stop the clock if i==6, and mark the start bit if i==-1
+    else:
+      i=7 #if the clock is stopped, we still need to receive the last bit
+    # i is the marker position, i-1 is the bit position of the next incoming serial bit
+    if (clk0!=clk1) and (i>=1): # i==0 is the start bit. skip that
+      return state^(state&(1<<(i-1)))^(serial_in<<(i-1))#set the data bit to the right of the marker
+    else:
+      return state #freeze the state if clk0==clk1 (this is also true when the clock is stopped)
+def SERIAL_RECEIVER_ROM_test(teststring):
+  def clock(n=4,j0=0):
+    c0=0
+    c1=0
+    run=False
+    j=j0
+    while True:
+      if run:
+        c0=0 if j<n else 1#first  on after n steps
+        j=(j+1)%(2*n)     
+      else:
+        c0=0
+        j=j0
+      run=yield (c1<<1)|c0
+      c1=c0 
+  def serial(ascii,n=4):
+    def bits(ascii):
+      yield 1
+      yield 1
+      yield 0
+      parity=1
+      for i in range(8):
+        bit=(ascii>>i)&1
+        parity ^= bit
+        yield  bit
+      yield parity
+      yield 1
+    for bit in bits(ord(ascii)):
+      for _ in range(n):
+        yield bit
+  cc=clock(4,4)
+  clk=cc.send(None)
+  uart=SERIAL_RECEIVER_ROM()
+  for c in teststring:
+    state=0
+    for i,bit in enumerate(serial(c,4)):
+      for j in range(4):
+        addr=(bit<<10)|(clk<<8)|state
+    #    print(f'{i:02d} {j:01d} {addr>>8:03b}|{addr&0xff:08b}')
+        state=uart[addr]
+      clk=cc.send(state>>7)
+    yield chr(state&0x7f)
+#     if (i%4)==3:print()
+#  print(chr(state&0x7f))
+ 
 
 if __name__=='__main__':
   
@@ -821,6 +911,9 @@ if __name__=='__main__':
   print('  ms01234567psms01234567ps')
   for c in 'ab c^de':
     print(c,''.join(Test_Serial(c,word=True)))
+  print('\nSERIAL_RECEIVER_ROM_test:')
+  teststring=''.join(chr(i)for i in range(32,128))
+  print(f'teststring  in: {"".join(teststring)}\nteststring out: {"".join(SERIAL_RECEIVER_ROM_test(teststring))}')
   
     
   combinedROM=ROMS(
@@ -848,6 +941,7 @@ if __name__=='__main__':
 ''')),
     (0x3000,ROM([intToGray(gray) for gray in range(256)],'IntToGray\n  A0..A7: Integer in\n  D0..D7: Gray-Code out')),
     (0x3100,ROM([grayToInt(i) for i in range(256)],'GrayToInt\n  A0..A7: Gray-Code in\n  D0..D7: Integer out')),
+    (0x3800,SERIAL_RECEIVER_ROM()),
     (0x4000,SERIAL_TRANSMITTER_ROM(24)),
    ),  
     includeDocInRom=True)
